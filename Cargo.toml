@@ -1,0 +1,16 @@
+[package]
+name = "opencl_attractor"
+version = "0.1.0"
+authors = ["FredericaBernkastel <bernkastel.frederica@protonmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+conrod_core =  { git = "https://github.com/PistonDevelopers/conrod" }
+conrod_winit = { git = "https://github.com/PistonDevelopers/conrod" }
+conrod_glium = { git = "https://github.com/PistonDevelopers/conrod" }
+glium = "0.24"
+winit = "0.19"
+find_folder = "0.3.0"
+#image = "0.21"
