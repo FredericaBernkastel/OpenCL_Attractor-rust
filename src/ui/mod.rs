@@ -1,13 +1,9 @@
-extern crate conrod_glium;
-extern crate find_folder;
-extern crate glium;
-
 use std::error::Error;
-use conrod_core::{widget, Labelable, Colorable, Positionable, Widget};
+use conrod_core::{widget, Labelable, Colorable, Positionable, Widget, position::Sizeable};
 use glium::glutin::WindowEvent;
+use term_painter::{ToStyle, Color};
 
 mod support;
-use conrod_core::position::Sizeable;
 
 // Generate the widget identifiers.
 widget_ids!(pub struct WidgetIds { button, button_title, text });
@@ -45,7 +41,7 @@ fn widgets(ref mut ui: conrod_core::UiCell, ui_state: &mut UIState) {
     .set(ui_state.widget_ids.button, ui)
   {
     ui_state.text = String::from("pressed");
-    println!("ui:: button pressed");
+    println!("{} button pressed", Color::Green.paint("ui::evt:"));
   }
 }
 
@@ -67,12 +63,12 @@ pub fn init() {
   let mut ui = conrod_core::UiBuilder::new([WIDTH as f64, HEIGHT as f64]).theme(support::theme()).build();
 
   let ui_state = UIState {
-    text: String::from("0"),
+    text: String::from(""),
     widget_ids: WidgetIds::new(ui.widget_id_generator())
   };
 
   if let Err(e) = load_assets(&mut ui) {
-    println!("ui:: Failed loading asset files:\n{}", e);
+    println!("{} Failed loading asset files:\n{}", Color::BrightRed.paint("ui::err:"), e);
   }
   support::render(display, &mut ui, ui_state, &mut events_loop, ui_events, widgets);
 }
