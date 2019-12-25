@@ -1,82 +1,64 @@
-use std::error::Error;
-use conrod_core::{widget, Labelable, Colorable, Positionable, Widget, position::Sizeable};
-use glium::glutin::WindowEvent;
-use term_painter::{ToStyle, Color};
+use orbtk::{prelude::*, render::platform::RenderContext2D, utils};
+use term_painter::{ToStyle, Color as TColor};
 
-mod support;
+// OrbTk 2D drawing
+#[derive(Clone, Default, PartialEq, Pipeline)]
+struct Graphic2DPipeline;
 
-// Generate the widget identifiers.
-widget_ids!(pub struct WidgetIds { button, button_title, text });
+impl render::RenderPipeline for Graphic2DPipeline {
+  fn draw(&self, render_target: &mut render::RenderTarget) {
+    let width = render_target.width();
+    let height = render_target.height();
 
-pub struct UIState {
-  pub widget_ids: WidgetIds,
-  pub text: String
-}
+    let mut render_context =
+      RenderContext2D::new(width, height);
 
-fn ui_events(event: WindowEvent, _ui_state: &mut UIState){
-  match event {
-    /*WindowEvent::CursorMoved { device_id: _, position, modifiers: _ } => {
-      ui_state.text = position.x.to_string();
-    },*/
-    _ => ()
-  }
-}
+    render_context.set_fill_style(utils::Brush::SolidColor(Color::from("#000000")));
 
-fn widgets(ref mut ui: conrod_core::UiCell, ui_state: &mut UIState) {
-  // Set the widgets.
-  const LABEL_FONT_SIZE: conrod_core::FontSize = 16;
-  const MARGIN: f64 = 8f64;
-
-  widget::Text::new(&ui_state.text)
-    .middle_of(ui.window)
-    .color(conrod_core::color::WHITE)
-    .font_size(32)
-    .set(ui_state.widget_ids.text, ui);
-
-  for _press in widget::Button::new()
-    .label("button")
-    .label_font_size(LABEL_FONT_SIZE)
-    .top_left_with_margin_on(ui.window, MARGIN)
-    .w_h(100f64, 30f64)
-    .set(ui_state.widget_ids.button, ui)
-  {
-    ui_state.text = String::from("pressed");
-    println!("{} button pressed", Color::Green.paint("ui::evt:"));
+    render_context.fill_rect(0.0, 0.0, width, height);
+    render_target.draw(render_context.data());
   }
 }
 
 pub fn init() {
-  const WIDTH: u32 = 400;
-  const HEIGHT: u32 = 200;
+  // use this only if you want to run it as web application.
+  //orbtk::initialize();
 
-  // Build the window.
-  let mut events_loop = glium::glutin::EventsLoop::new();
-  let window = glium::glutin::WindowBuilder::new()
-    .with_title("OpenCL Attractor")
-    .with_dimensions((WIDTH, HEIGHT).into());
-  let context = glium::glutin::ContextBuilder::new()
-    .with_vsync(true)
-    .with_multisampling(1);
-  let display = glium::Display::new(window, context, &events_loop).unwrap();
-
-  // construct our `Ui`.
-  let mut ui = conrod_core::UiBuilder::new([WIDTH as f64, HEIGHT as f64]).theme(support::theme()).build();
-
-  let ui_state = UIState {
-    text: String::from(""),
-    widget_ids: WidgetIds::new(ui.widget_id_generator())
-  };
-
-  if let Err(e) = load_assets(&mut ui) {
-    println!("{} Failed loading asset files:\n{}", Color::BrightRed.paint("ui::err:"), e);
-  }
-  support::render(display, &mut ui, ui_state, &mut events_loop, ui_events, widgets);
-}
-
-fn load_assets (ui: &mut conrod_core::Ui) -> Result<(), Box<dyn Error>> {
-  // Add a `Font` to the `Ui`'s `font::Map` from file.
-  let assets = find_folder::Search::KidsThenParents(3, 5).for_folder("assets")?;
-  let font_path = assets.join("fonts/NotoSans/NotoSans-Regular.ttf");
-  ui.fonts.insert_from_file(font_path)?;
-  Ok(())
+  Application::new()
+    .window(|ctx| {
+      Window::create()
+        .title("OpenCL Attractor")
+        .position((100.0, 100.0))
+        .size(640.0, 480.0 + 46.0)
+        .child(
+          Grid::create()
+            .rows(
+              Rows::create()
+                .row(46.0)
+                .row("*")
+                .build(),
+            )
+            .child(
+              Button::create()
+                .attach(Grid::row(0))
+                .text("Button")
+                .margin((8.0, 8.0, 8.0, 8.0))
+                .size(100.0, 30.0)
+                .on_click(|_, _| {
+                  println!("{} button pressed", TColor::Green.paint("ui::evt:"));
+                  true
+                })
+                .build(ctx),
+            )
+            .child(
+              Canvas::create()
+                .attach(Grid::row(1))
+                .render_pipeline(RenderPipeline(Box::new(Graphic2DPipeline::default())))
+                .build(ctx)
+            )
+            .build(ctx)
+        )
+        .build(ctx)
+    })
+    .run();
 }

@@ -7,13 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-conrod_core =  { git = "https://github.com/PistonDevelopers/conrod" }
-conrod_winit = { git = "https://github.com/PistonDevelopers/conrod" }
-conrod_glium = { git = "https://github.com/PistonDevelopers/conrod" }
-glium = "0.24"
-winit = "0.19"
-find_folder = "0.3.0"
+orbtk = { git = "https://github.com/redox-os/orbtk.git", branch = "develop" }
+ocl = "0.19"
 dialoguer = "0.5.0"
 indicatif = "0.13.0"
 term-painter = "0.2.4"
-#image = "0.21"
