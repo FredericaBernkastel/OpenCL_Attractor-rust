@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use dialoguer::{theme::CustomPromptCharacterTheme, Input};
 use term_painter::{ToStyle, Color};
 
