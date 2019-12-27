@@ -1,32 +1,54 @@
+#![allow(dead_code)]
 use ocl::{ProQue, Buffer, flags};
 use term_painter::{ToStyle, Color as TColor};
 use std::time::Instant;
 
 pub struct KernelWrapper{
-  kernel: ocl::Kernel,
-  buffer: ocl::Buffer<u32>,
+  kernel_main: ocl::Kernel,
+  kernel_draw_image: ocl::Kernel,
+  accumulator: ocl::Buffer<u32>,
+  framebuffer: ocl::Buffer<u32>,
+  frequency_max: ocl::Buffer<u32>,
   scalar: ocl::Buffer<u32>,
+}
+
+pub enum Action {
+  None,
+  Render
+}
+
+pub enum ActionResult {
+  Ok,
+  Err
 }
 
 impl KernelWrapper {
   pub fn new() -> Result<KernelWrapper, ocl::Error> {
-    let src = r#"
-      __kernel void main(__global uint* buffer, __global uint* scalar) {
-        uint x = get_global_id(0);
-        uint y = get_global_id(1);
-        uint dimm_x = get_global_size(0);
-        uint dimm_y = get_global_size(1);
 
-        buffer[y * dimm_y + x] = 0xFF000000 | (x + y) * scalar[0];
-      }
-    "#;
+    let device = ocl::Device::list(
+      ocl::Platform::default(), Some(ocl::flags::DEVICE_TYPE_GPU))?
+      .first()
+      .expect("No GPU devices found")
+      .clone();
+
+    println!("{} {}", TColor::Green.paint("opencl::device::info:"), device.to_string());
+
+    let src = std::fs::read_to_string("kernel.cl").expect("Unable to load kernel.cl");
 
     let pro_que = ProQue::builder()
       .src(src)
+      .device(device)
       .dims((512, 512))
       .build()?;
 
-    let buffer = pro_que.create_buffer::<u32>()?;
+    let accumulator = pro_que.create_buffer::<u32>()?;
+    let framebuffer = pro_que.create_buffer::<u32>()?;
+    let frequency_max = Buffer::<u32>::builder()
+      .queue(pro_que.queue().clone())
+      .flags(flags::MEM_READ_WRITE)
+      .len(1)
+      .fill_val(0u32)
+      .build()?;
     let scalar = Buffer::<u32>::builder()
       .queue(pro_que.queue().clone())
       .flags(flags::MEM_READ_WRITE)
@@ -34,21 +56,30 @@ impl KernelWrapper {
       .fill_val(0u32)
       .build()?;
 
-    let kernel = pro_que.kernel_builder("main")
-      .arg(&buffer)
+    let kernel_main = pro_que.kernel_builder("main")
+      .arg(&accumulator)
+      .arg(&framebuffer)
+      .arg(&frequency_max)
       .arg(&scalar)
       .build()?;
 
-    Ok(KernelWrapper { kernel, buffer, scalar })
+    let kernel_draw_image = pro_que.kernel_builder("draw_image")
+      .arg(&accumulator)
+      .arg(&framebuffer)
+      .arg(&frequency_max)
+      .build()?;
+
+    Ok(KernelWrapper { kernel_main, kernel_draw_image, accumulator, framebuffer, frequency_max, scalar })
   }
 
   pub fn main(&self, scalar: u32) -> ocl::Result<()> {
     let t0 = Instant::now();
     self.scalar.write(&vec![scalar]).enq()?;
     unsafe {
-      self.kernel.enq()?;
+      self.kernel_main.enq()?;
+      self.kernel_draw_image.enq()?;
       if let Some(image_buffer) = &mut super::IMAGE_BUFFER {
-        self.buffer.read(image_buffer).enq()?;
+        self.framebuffer.read(image_buffer).enq()?;
       }
     }
 

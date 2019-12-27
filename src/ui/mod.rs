@@ -1,18 +1,13 @@
-use orbtk::prelude::*;
+use orbtk::{prelude::*, render::platform::RenderContext2D};
+use term_painter::{ToStyle, Color as TColor};
+use std::time::Instant;
+use super::opencl;
 
 #[derive(Default, AsAny)]
 pub struct MainViewState;
 
 impl State for MainViewState {
-  fn update(&mut self, _: &mut Registry, ctx: &mut Context<'_>) {
-    if let Some(_pipeline) = ctx
-      .widget()
-      .get_mut::<RenderPipeline>("render_pipeline")
-      .0
-      .as_any()
-      .downcast_ref::<Graphic2DPipeline>()
-    { }
-  }
+  fn update(&mut self, _: &mut Registry, ctx: &mut Context<'_>) {  }
 }
 
 widget!(
@@ -36,14 +31,15 @@ impl Template for MainView {
         .child(
           Button::create()
             .attach(Grid::row(0))
-            .text("Button")
+            .text("render")
             .margin((8.0, 8.0, 8.0, 8.0))
             .size(100.0, 30.0)
             .on_click(move |_states, _|{
+              println!("> render");
               unsafe {
                 if let (Some(tx1), Some(rx2)) = (&super::TX1, &super::RX2) {
-                  tx1.send(()).unwrap();
-                  rx2.recv().unwrap()
+                  tx1.send(opencl::Action::Render).unwrap();
+                  rx2.recv().unwrap(); // wait for opencl to finish rendering
                 }
               }
               true
@@ -67,32 +63,24 @@ pub struct Graphic2DPipeline;
 
 impl render::RenderPipeline for Graphic2DPipeline {
   fn draw(&self, render_target: &mut render::RenderTarget) {
-    /*let width = render_target.width();
+    let t0 = Instant::now();
+    let width = render_target.width();
     let height = render_target.height();
-
     let mut render_context =
       RenderContext2D::new(width, height);
-
-    render_context.set_fill_style(utils::Brush::SolidColor(Color::from("#000000")));
-
-    render_context.fill_rect(0.0, 0.0, width, height);
-
-    unsafe {
-       if let Some(image) = &super::image_buffer {
-        let image = Image::from_data(
-          512, 512, image.to_owned()
-        ).expect("imagebuffer is corrupted");
-        render_context.draw_image(&image, 0.0, 0.0);
-      }
-    }
-
-    render_target.draw(render_context.data());*/
+    //render_context.set_fill_style(utils::Brush::SolidColor(Color::from("#000000")));
+    //render_context.fill_rect(0.0, 0.0, width, height);
 
     unsafe {
       if let Some(image) = &super::IMAGE_BUFFER {
-        render_target.draw(image);
+       let image = Image::from_data(
+          512, 512, image.clone()
+        ).expect("imagebuffer is corrupted");
+        render_context.draw_image(&image, 0.0, 0.0);
+        render_target.draw(render_context.data());
       }
     }
+    println!("{} {:?}", TColor::Green.paint("ui::render::profiling:"), t0.elapsed());
   }
 }
 
