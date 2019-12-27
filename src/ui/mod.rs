@@ -1,20 +1,73 @@
-use std::thread;
-use std::sync::{Arc, MutexGuard};
-use std::sync::{Mutex, mpsc::Receiver};
-use std::cell::{Cell, RefCell, Ref, RefMut};
-use orbtk::{prelude::*, render::platform::RenderContext2D, utils};
-use term_painter::{ToStyle, Color as TColor};
+use orbtk::prelude::*;
 
-use super::opencl;
-use std::thread::JoinHandle;
+#[derive(Default, AsAny)]
+pub struct MainViewState;
+
+impl State for MainViewState {
+  fn update(&mut self, _: &mut Registry, ctx: &mut Context<'_>) {
+    if let Some(_pipeline) = ctx
+      .widget()
+      .get_mut::<RenderPipeline>("render_pipeline")
+      .0
+      .as_any()
+      .downcast_ref::<Graphic2DPipeline>()
+    { }
+  }
+}
+
+widget!(
+  MainView<MainViewState> {
+    render_pipeline: RenderPipeline
+  }
+);
+
+impl Template for MainView {
+  fn template(self, id: Entity, ctx: &mut BuildContext) -> Self {
+    self.name("MainView")
+      .render_pipeline(RenderPipeline(Box::new(Graphic2DPipeline::default())))
+      .child(
+        Grid::create()
+        .rows(
+          Rows::create()
+            .row(46.0)
+            .row("*")
+            .build(),
+        )
+        .child(
+          Button::create()
+            .attach(Grid::row(0))
+            .text("Button")
+            .margin((8.0, 8.0, 8.0, 8.0))
+            .size(100.0, 30.0)
+            .on_click(move |_states, _|{
+              unsafe {
+                if let (Some(tx1), Some(rx2)) = (&super::TX1, &super::RX2) {
+                  tx1.send(()).unwrap();
+                  rx2.recv().unwrap()
+                }
+              }
+              true
+            })
+            .build(ctx),
+        )
+        .child(
+          Canvas::create()
+            .attach(Grid::row(1))
+            .render_pipeline(id)
+            .build(ctx)
+        )
+        .build(ctx)
+      )
+  }
+}
 
 // OrbTk 2D drawing
-#[derive(Clone, Debug, PartialEq, Pipeline)]
+#[derive(Clone, Default, PartialEq, Pipeline)]
 pub struct Graphic2DPipeline;
 
 impl render::RenderPipeline for Graphic2DPipeline {
   fn draw(&self, render_target: &mut render::RenderTarget) {
-    let width = render_target.width();
+    /*let width = render_target.width();
     let height = render_target.height();
 
     let mut render_context =
@@ -33,7 +86,13 @@ impl render::RenderPipeline for Graphic2DPipeline {
       }
     }
 
-    render_target.draw(render_context.data());
+    render_target.draw(render_context.data());*/
+
+    unsafe {
+      if let Some(image) = &super::IMAGE_BUFFER {
+        render_target.draw(image);
+      }
+    }
   }
 }
 
@@ -47,41 +106,7 @@ pub fn init() {
         .title("OpenCL Attractor")
         .position((100.0, 100.0))
         .size(512.0, 512.0 + 46.0)
-        .child(
-          Grid::create()
-          .rows(
-            Rows::create()
-              .row(46.0)
-              .row("*")
-              .build(),
-          )
-          .child(
-            Button::create()
-              .attach(Grid::row(0))
-              .text("Button")
-              .margin((8.0, 8.0, 8.0, 8.0))
-              .size(100.0, 30.0)
-              .on_click(|_, _|{
-                unsafe {
-                  if let Some(tx1_) = &super::tx1 {
-                    tx1_.send(opencl::Action::Action1).unwrap();
-                  }
-                  if let Some(rx2) = &super::rx2 {
-                    rx2.recv().unwrap();
-                  }
-                }
-                true
-              })
-              .build(ctx),
-          )
-          .child(
-            Canvas::create()
-              .attach(Grid::row(1))
-              .render_pipeline(RenderPipeline(Box::new(Graphic2DPipeline{})))
-              .build(ctx)
-          )
-          .build(ctx)
-        )
+        .child(MainView::create().build(ctx))
         .build(ctx)
     })
     .run();

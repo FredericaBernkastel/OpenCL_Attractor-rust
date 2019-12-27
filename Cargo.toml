@@ -9,7 +9,10 @@ edition = "2018"
 [dependencies]
 orbtk = { git = "https://github.com/redox-os/orbtk.git", branch = "develop" }
 ocl = "0.19"
-lazy_static = "1.4.0"
 dialoguer = "0.5.0"
 indicatif = "0.13.0"
 term-painter = "0.2.4"
+
+[profile.release]
+lto = true
+opt-level = 3

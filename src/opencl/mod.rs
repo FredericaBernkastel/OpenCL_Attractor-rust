@@ -1,14 +1,6 @@
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::cell::{RefCell, RefMut, Ref};
 use ocl::{ProQue, Buffer, flags};
 use term_painter::{ToStyle, Color as TColor};
 use std::time::Instant;
-
-pub enum Action {
-  Action1,
-  Action2
-}
 
 pub struct KernelWrapper{
   kernel: ocl::Kernel,
@@ -25,7 +17,7 @@ impl KernelWrapper {
         uint dimm_x = get_global_size(0);
         uint dimm_y = get_global_size(1);
 
-        buffer[y * dimm_y + x] = (x + y) * scalar[0];
+        buffer[y * dimm_y + x] = 0xFF000000 | (x + y) * scalar[0];
       }
     "#;
 
@@ -52,20 +44,15 @@ impl KernelWrapper {
 
   pub fn main(&self, scalar: u32) -> ocl::Result<()> {
     let t0 = Instant::now();
-
     self.scalar.write(&vec![scalar]).enq()?;
-
-    unsafe { self.kernel.enq()?; }
-
-    let mut vec: Vec<u32> = vec![0; self.buffer.len()];
-    self.buffer.read(&mut vec).enq()?;
-
     unsafe {
-      super::image_buffer = Some(vec);
+      self.kernel.enq()?;
+      if let Some(image_buffer) = &mut super::IMAGE_BUFFER {
+        self.buffer.read(image_buffer).enq()?;
+      }
     }
 
     println!("{} {:?}", TColor::Green.paint("opencl::render::profiling:"), t0.elapsed());
-    //println!("The value at index [{}] is now '{}'!", 256 * 1 + 1, image_buffer[256 * 1 + 1]);
     Ok(())
   }
 }
