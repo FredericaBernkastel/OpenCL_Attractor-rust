@@ -1,5 +1,10 @@
 #![allow(dead_code)]
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex, mpsc::Sender, mpsc::Receiver},
+  time::{Instant, SystemTime},
+  thread::JoinHandle,
+  mem
+};
 use ocl::{ProQue, Buffer, Image, flags};
 use ocl::enums::{ImageChannelOrder, ImageChannelDataType, MemObjectType};
 use term_painter::{ToStyle, Color as TColor};
@@ -32,6 +37,70 @@ pub enum ActionResult {
   Err
 }
 
+pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()> {
+  let mut iter = 0u32;
+  let kernel = KernelWrapper::new((2048, 2048)).unwrap();
+  tx2.send(ActionResult::Ok).unwrap();
+  loop {
+    match rx1.recv().unwrap() {
+      Action::Render => {
+        println!("{} executing OpenCL kernel...", TColor::BrightBlack.paint("opencl::thr:"));
+        let t0 = Instant::now();
+        kernel.main(iter)
+          .and_then(|_| { kernel.draw_image()})
+          .and_then(|_| kernel.draw_image_preview())
+          .and_then(|_| {
+            iter += 1;
+            tx2.send(ActionResult::Ok).unwrap();
+            Ok(())
+          }).unwrap_or_else( |_| {
+          tx2.send(ActionResult::Err).unwrap();
+        });
+        println!("{} {:?}", TColor::BrightBlack.paint("opencl::render::profiling:"), t0.elapsed());
+      },
+      Action::SaveImage => {
+        unsafe {
+          if let Some(image_buffer) = &crate::IMAGE_BUFFER {
+            let image_buffer = image_buffer.lock().expect("mutex is poisoned");
+            let file_name = format!(
+              "opencl_attractor-{}.png",
+              SystemTime::now().duration_since(
+                SystemTime::UNIX_EPOCH
+              ).unwrap().as_millis()
+            );
+            if let Ok(()) = image_buffer.save(&file_name){
+              println!("{} image saved to \"{}\"", TColor::Green.paint("opencl::thr:"), &file_name);
+              tx2.send(ActionResult::Ok).unwrap();
+            } else {
+              println!("{} unable to save image, \"{}\"", TColor::BrightRed.paint("opencl::thr::err:"), &file_name);
+              tx2.send(ActionResult::Err).unwrap();
+            }
+          }
+        }
+      },
+      _ => ()
+    }
+  }
+}
+
+pub unsafe fn u32_to_u8(mut vec32: Vec<u32>) -> Vec<u8> {
+  let ratio = mem::size_of::<u32>() / mem::size_of::<u8>();
+  let length = vec32.len() * ratio;
+  let capacity = vec32.capacity() * ratio;
+  let ptr = vec32.as_mut_ptr() as *mut u8;
+  mem::forget(vec32);
+  Vec::from_raw_parts(ptr, length, capacity)
+}
+
+pub unsafe fn u8_to_u32(mut vec8: Vec<u8>) -> Vec<u32> {
+  let ratio = mem::size_of::<u32>() / mem::size_of::<u8>();
+  let length = vec8.len() / ratio;
+  let capacity = vec8.capacity() / ratio;
+  let ptr = vec8.as_mut_ptr() as *mut u32;
+  mem::forget(vec8);
+  Vec::from_raw_parts(ptr, length, capacity)
+}
+
 impl KernelWrapper {
   pub fn new(image_size: (u32, u32)) -> Result<KernelWrapper, ocl::Error> {
 
@@ -41,7 +110,7 @@ impl KernelWrapper {
       .expect("No GPU devices found")
       .clone();
 
-    println!("{} {}", TColor::Green.paint("opencl::device::info:"), device.to_string());
+    println!("{}", TColor::BrightBlack.paint(format!("opencl::device::info: {}", device.to_string())));
 
     let framebuffer = image::ImageBuffer::from_fn(
       image_size.0,
@@ -129,8 +198,8 @@ impl KernelWrapper {
       .build()?;
 
     unsafe {
-      super::IMAGE_BUFFER = Some(Arc::new(Mutex::new(framebuffer)));
-      super::IMAGE_BUFFER_PREVIEW = Some(Arc::new(Mutex::new(framebuffer_preview)));
+      crate::IMAGE_BUFFER = Some(Arc::new(Mutex::new(framebuffer)));
+      crate::IMAGE_BUFFER_PREVIEW = Some(Arc::new(Mutex::new(framebuffer_preview)));
     }
 
     Ok(KernelWrapper { kernel_main, kernel_draw_image, kernel_draw_image_preview, args, image_size })
@@ -157,7 +226,7 @@ impl KernelWrapper {
         self.args.iter.write(&vec![iter]).enq()?;
         self.kernel_draw_image.enq()?;
       }
-      if let Some(image_buffer) = &mut super::IMAGE_BUFFER {
+      if let Some(image_buffer) = &mut crate::IMAGE_BUFFER {
         let mut image_buffer = image_buffer.lock().expect("mutex is poisoned");
         self.args.framebuffer.read(&mut image_buffer).enq()?;
       }
@@ -168,7 +237,7 @@ impl KernelWrapper {
   pub fn draw_image_preview(&self) -> ocl::Result<()> {
     unsafe {
       self.kernel_draw_image_preview.enq()?;
-      if let Some(image_buffer) = &mut super::IMAGE_BUFFER_PREVIEW {
+      if let Some(image_buffer) = &mut crate::IMAGE_BUFFER_PREVIEW {
         let mut image_buffer = image_buffer.lock().expect("mutex is poisoned");
         self.args.framebuffer_preview.read(&mut image_buffer).enq()?;
       }

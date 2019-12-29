@@ -30,7 +30,7 @@ __constant complex screenCenter = (complex)( 0, 0 );
 /* Enable atomics with global memory (2x slowdown) */
 __constant bool SyncWrite = true;
 
-__constant uint MAX_ORBIT_LENGTH = 64;
+__constant uint MAX_ORBIT_LENGTH = 1024;
 
 typedef uint4 color;
 
@@ -107,17 +107,17 @@ inline complex csqr(complex a){
 }
 
 inline complex cexp(complex z) {
-	return (complex)(exp(z.x) * cos(z.y), exp(z.x) * sin(z.y));
+  return (complex)(exp(z.x) * cos(z.y), exp(z.x) * sin(z.y));
 }
 
 inline complex clog(complex a) {
-	float b = atan2(a.y, a.x);
-	if (b > 0.0) b = b - 2.0 * M_PI;
-	return (complex)( log(length(a)), b );
+  float b = atan2(a.y, a.x);
+  if (b > 0.0) b = b - 2.0 * M_PI;
+  return (complex)( log(length(a)), b );
 }
 
 inline complex cpower2(complex z, complex w) {
-	return cexp(cmul(clog(z), w));
+  return cexp(cmul(clog(z), w));
 }
 
 /*
@@ -220,8 +220,8 @@ uint CheckOrbit(complex const c){
   complex z = EPSILON_SMALL;
   
   complex z_period = (complex)(z.x, z.y);
-	uint iPeriod = 0;
-	uint periodCheckInterval = 3;
+  uint iPeriod = 0;
+  uint periodCheckInterval = 3;
   /* __constant */ uint PERIOD_CHECK_MAX = MAX_ORBIT_LENGTH;
   /* __constant */ float PERIOD_CHECK_DELTA = 1e-6f;
   /* __constant */ uint PERIOD_CHECK_INTERVAL = 101;
@@ -230,11 +230,11 @@ uint CheckOrbit(complex const c){
   for(; i < MAX_ORBIT_LENGTH; i++){
     z = cpowr(z, 2.0) + c;
        
-		if (!(isfinite(z.x) & isfinite(z.y)))
-			return (i == 0) ? 0 : (i-1);
+    if (!(isfinite(z.x) & isfinite(z.y)))
+      return (i == 0) ? 0 : (i-1);
     
     //float _cabs = cabs_squared(z);
-    if (cabs(z) >= (float)(2 << 29) )
+    if (cabs(z) >= 4.0 )
       return i;   
   }
 }

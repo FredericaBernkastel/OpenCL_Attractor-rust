@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use dialoguer::{theme::CustomPromptCharacterTheme, Input};
 use term_painter::{ToStyle, Color};
-use super::opencl;
+use crate::opencl;
 
 pub fn init() {
   let theme = CustomPromptCharacterTheme::new('>');
@@ -11,7 +11,7 @@ pub fn init() {
       .interact(): Result<String, _> {
 
       unsafe {
-        if let (Some(tx1), Some(rx2)) = (&super::TX1, &super::RX2) {
+        if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
           match input.as_ref() {
             "render" => {
               tx1.send(opencl::Action::Render).unwrap();
