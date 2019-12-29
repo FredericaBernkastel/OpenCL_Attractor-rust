@@ -706,9 +706,10 @@ dependencies = [
 
 [[package]]
 name = "opencl_attractor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dialoguer 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "image 0.22.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ocl 0.19.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "orbtk 0.3.1-alpha1 (git+https://github.com/redox-os/orbtk.git?branch=develop)",

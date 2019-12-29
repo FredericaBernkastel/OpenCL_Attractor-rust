@@ -9,7 +9,7 @@
 typedef float2 complex;
 #define I ((complex)(0.0, 1.0))
 
-__constant float E = .0000001f;
+__constant float E = 1e-7;
 __constant float EPSILON_SMALL = 1e-12;
 
 bool fEqual(float x, float y)
@@ -30,12 +30,18 @@ __constant complex screenCenter = (complex)( 0, 0 );
 /* Enable atomics with global memory (2x slowdown) */
 __constant bool SyncWrite = true;
 
-__constant uint MAX_ORBIT_LENGTH = 32;
+__constant uint MAX_ORBIT_LENGTH = 64;
 
-typedef float4 color;
+typedef uint4 color;
+
+inline color float1ToARGB(float pixel){
+  color result = (color)(min((uint)(pixel * 0xFF), (uint)0xFF));
+  result.w = (uint)0xFF;
+  return result;
+}
 
 inline color UInt32ToARGB(uint pixel){
-  color result;
+  color result = (color)0;
   result.w = (pixel & 0xFF) / (float)0xFF;
   result.z = ((pixel >> 0x08) & 0xFF) / (float)0xFF;
   result.y = ((pixel >> 0x10) & 0xFF) / (float)0xFF;
@@ -228,16 +234,16 @@ uint CheckOrbit(complex const c){
 			return (i == 0) ? 0 : (i-1);
     
     //float _cabs = cabs_squared(z);
-    if (cabs(z) >= (4.0f) )
+    if (cabs(z) >= (float)(2 << 29) )
       return i;   
   }
 }
 
 __kernel void main(
     __global uint * accumulator, 
-    __global uint * framebuffer,
     __global uint * frequency_max,
-    __global uint * scalar
+    uint2 image_size,
+    __global uint * iter
   ) 
 {
   uint id_x = get_global_id(0);
@@ -245,49 +251,83 @@ __kernel void main(
   uint dimm_x = get_global_size(0);
   uint dimm_y = get_global_size(1);
   uint2 _size = (uint2)(dimm_x, dimm_y);
+  uint2 size = image_size;
   
-  //complex c = coords_Normal2Window((complex)(id_x / (float)_size.x, id_y / (float)_size.y));
-  complex c = coords_Normal2Window(rand((uint2)(id_x + scalar[0] * dimm_x, id_y + scalar[0] * dimm_y)));
+  complex c = coords_Normal2Window(rand((uint2)(id_x + iter[0] * dimm_x, id_y + iter[0] * dimm_y)));
   
   uint orbit_length = CheckOrbit(c);
   
   if(orbit_length == 0)
     return;
   
-  uint2 coords = coords_Window2Screen((c + screenCenter) / screenSize, (complex)(_size.x, _size.y));
-  if(coords_testOverflow(coords, _size)){
-    uint index = coords.y * _size.x + coords.x;
+  uint2 coords = coords_Window2Screen((c + screenCenter) / screenSize, (complex)(size.x, size.y));
+  if(coords_testOverflow(coords, size)){
+    uint index = coords.y * size.x + coords.x;
     if(orbit_length < MAX_ORBIT_LENGTH){
       atom_inc(&accumulator[index]);
       atom_max(&frequency_max[0], accumulator[index]);
     }  
   }
-  
-  //uint alpha = (uint)(sin(x * M_PI * scalar[0]) * sin(y * M_PI * scalar[0]) * 0xFF);
-  //buffer[id_y * dimm_y + id_x] = alpha | (alpha << 8) | (alpha << 16) | 0xFF000000;
-  //buffer[id_y * dimm_y + id_x] = alpha | 0xFF000000;
 }
+
+const sampler_t samplerIn =
+    CLK_NORMALIZED_COORDS_FALSE |
+    CLK_ADDRESS_CLAMP |
+    CLK_FILTER_LINEAR;
+
+const sampler_t samplerOut =
+    CLK_NORMALIZED_COORDS_FALSE |
+    CLK_ADDRESS_CLAMP |
+    CLK_FILTER_NEAREST;
 
 __kernel void draw_image(
     __global uint * accumulator,
-    __global uint * framebuffer,
-    __global uint * frequency_max
+    write_only image2d_t framebuffer,
+    __global uint * frequency_max,
+    __global uint * iter
   )
 {
   uint x = get_global_id(0);
   uint y = get_global_id(1);
   uint dimm_x = get_global_size(0);
   uint dimm_y = get_global_size(1);
-  uint2 size = (uint2)(dimm_x, dimm_y);
+  uint2 image_size = (uint2)(get_image_width(framebuffer), get_image_height(framebuffer));
+  
+  uint blocks_x = max(image_size.x / dimm_x, (uint)1);
+  uint blocks_y = max(image_size.y / dimm_y, (uint)1);
+  
+  x = x + iter[0] % blocks_x * dimm_x;
+  y = y + iter[0] / blocks_y * dimm_y;
+  
+  if((x >= image_size.x) || (y >= image_size.y))
+    return;
   
   if(frequency_max[0] > 0){
-    float frequency = (float)accumulator[y * size.x + x];
+    float frequency = (float)accumulator[y * image_size.x + x];
     float alpha = 1 * log((frequency + 1)) / log(((float)frequency_max[0] + 1));
     float gamma = 2;
     
-    
     //image[y * size.x + x] = ARGBToUInt32(HSL2ARGB(ARGB2HSL(UInt32ToARGB(palette[colorIndex])) * (float3)(1,1,min(pow(alpha, 1 / gamma), (float)1)))) | 0xFF000000;
     //image[y * size.x + x] = ARGBToUInt32(UInt32ToARGB(palette[colorIndex]) * min(pow(alpha, 1 / gamma), (float)1)) | 0xFF000000;
-    framebuffer[y * size.x + x] = ARGBToUInt32((color)1 * min(pow(alpha, 1 / gamma), 1.0f)) | 0xFF000000;
+    color pixel = float1ToARGB(min(pow(alpha, 1 / gamma), 1.0f));
+    write_imageui(framebuffer, (int2)(x, y), pixel);
   }
+}
+
+__kernel void draw_image_preview(
+    image2d_t framebuffer,
+    __write_only image2d_t framebuffer_preview
+  )
+{
+  int2 size_in  = (int2)(get_image_width(framebuffer), get_image_height(framebuffer));
+  int2 size_out = (int2)(get_image_width(framebuffer_preview), get_image_height(framebuffer_preview));
+  int2 pos_out  = (int2)(get_global_id(0), get_global_id(1));
+  int2 pos_in   = convert_int2(
+    convert_float2(pos_out)  / 
+    convert_float2(size_out) * 
+    convert_float2(size_in)
+  );
+
+  color pixel = read_imageui(framebuffer, samplerIn, pos_in);
+  write_imageui(framebuffer_preview, pos_out, pixel);
 }
