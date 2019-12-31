@@ -70,21 +70,26 @@ impl Template for MainView {
                   .column("auto")
                   .column(8.0)
                   .column("auto")
+                  .column(8.0)
+                  .column("auto")
+                  .column(8.0)
+                  .column("auto")
+                  .column(8.0)
                   .build(),
               )
               .child(
                 Button::create()
                   .attach(Grid::row(0))
                   .attach(Grid::column(0))
-                  .text("render")
+                  .text("new")
                   .margin((8.0, 8.0, 0.0, 0.0))
                   .size(100.0, 30.0)
                   .on_click(move |_states, _|{
-                    println!("> render");
+                    println!("> new --dimensions 512 512");
                     unsafe {
                       if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
-                        tx1.send(opencl::Action::Render).unwrap();
-                        rx2.recv().unwrap(); // wait for opencl to finish rendering
+                        tx1.send(opencl::Action::New(512, 512)).unwrap();
+                        rx2.recv().unwrap();
                       }
                     }
                     true
@@ -95,6 +100,39 @@ impl Template for MainView {
                 Button::create()
                   .attach(Grid::row(0))
                   .attach(Grid::column(2))
+                  .text("render")
+                  .margin((8.0, 8.0, 0.0, 0.0))
+                  .size(100.0, 30.0)
+                  .on_click(move |_states, _|{
+                    println!("> render -i 64 --dimensions 512 512");
+                    unsafe {
+                      if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
+                        tx1.send(opencl::Action::Render(64, vec![512, 512])).unwrap();
+                        rx2.recv().unwrap(); // wait for opencl to finish rendering
+                      }
+                    }
+                    true
+                  })
+                  .build(ctx),
+              )
+              .child(
+                Button::create()
+                  .attach(Grid::row(0))
+                  .attach(Grid::column(4))
+                  .text("stop")
+                  .margin((8.0, 8.0, 0.0, 0.0))
+                  .size(100.0, 30.0)
+                  .on_click(move |_states, _|{
+                    println!("^C");
+                    opencl::thread_interrupt();
+                    true
+                  })
+                  .build(ctx),
+              )
+              .child(
+                Button::create()
+                  .attach(Grid::row(0))
+                  .attach(Grid::column(6))
                   .text("save image")
                   .margin((8.0, 8.0, 0.0, 0.0))
                   .size(100.0, 30.0)

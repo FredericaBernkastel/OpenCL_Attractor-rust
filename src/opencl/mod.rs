@@ -5,10 +5,12 @@ use std::{
   thread::JoinHandle,
   mem
 };
-use ocl::{ProQue, Buffer, Image, flags};
+use ocl::{ProQue, Buffer, Image, flags, prm::Uint2};
 use ocl::enums::{ImageChannelOrder, ImageChannelDataType, MemObjectType};
 use term_painter::{ToStyle, Color as TColor};
+use indicatif::{ProgressBar, ProgressStyle};
 use image;
+use std::time::Duration;
 
 struct Args {
   accumulator: Buffer<u32>,
@@ -26,36 +28,108 @@ pub struct KernelWrapper{
   pub image_size: (u32, u32)
 }
 
-pub enum Action {
-  None,
-  Render,
-  SaveImage
+#[derive(Clone, PartialEq)]
+pub struct ThreadState {
+  pub randgen_offset: u32,
+  pub rendering: bool
 }
 
+#[derive(PartialEq)]
+pub enum Action {
+  None,
+  New(/* width */ u32, /* height */ u32),
+  Render(/* iterations */ u32, /* dimensions */ Vec<u32>),
+  SaveImage,
+  GetState,
+  Interrupt
+}
+
+#[derive(PartialEq)]
 pub enum ActionResult {
   Ok,
+  State(ThreadState),
   Err
 }
 
 pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()> {
-  let mut iter = 0u32;
-  let kernel = KernelWrapper::new((2048, 2048)).unwrap();
+  let mut state = ThreadState {
+    randgen_offset: 0u32,
+    rendering: false
+  };
+
+  let mut kernel = KernelWrapper::new((512, 512)).unwrap();
   tx2.send(ActionResult::Ok).unwrap();
-  loop {
+
+  'messages: loop {
     match rx1.recv().unwrap() {
-      Action::Render => {
+      Action::New(width, height) => {
+        let mut result = ActionResult::Err;
+        if let Ok(kernel_) = KernelWrapper::new((1, 1)) { // prevent memory overflow
+          kernel = kernel_;
+          if let Ok(kernel_) = KernelWrapper::new((width, height)) {
+            kernel = kernel_;
+            result = ActionResult::Ok;
+          }
+        }
+        tx2.send(result).unwrap();
+      },
+      Action::Render(iterations, dimensions) => {
+        let dimm: ocl::SpatialDims;
+        match dimensions.len() {
+          1 => dimm = (dimensions[0]).into(),
+          2 => dimm = (dimensions[0], dimensions[1]).into(),
+          3 => dimm = (dimensions[0], dimensions[1], dimensions[2]).into(),
+          _ => {
+            println!("{} {}", TColor::BrightRed.paint("opencl::thr::err"), "invalid number of dimensions");
+            tx2.send(ActionResult::Err).unwrap();
+            continue 'messages;
+          }
+        };
+
+        std::thread::sleep(Duration::from_millis(1));
         println!("{} executing OpenCL kernel...", TColor::BrightBlack.paint("opencl::thr:"));
+
+        state.rendering = true;
+        kernel.kernel_main.set_default_global_work_size(dimm);
         let t0 = Instant::now();
-        kernel.main(iter)
-          .and_then(|_| { kernel.draw_image()})
-          .and_then(|_| kernel.draw_image_preview())
-          .and_then(|_| {
-            iter += 1;
-            tx2.send(ActionResult::Ok).unwrap();
-            Ok(())
-          }).unwrap_or_else( |_| {
-          tx2.send(ActionResult::Err).unwrap();
-        });
+        let progress_bar = ProgressBar::new(iterations as u64);
+        progress_bar.set_style(ProgressStyle::default_bar()
+          .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:cyan/blue}] {percent}% {msg} [{eta}]")
+          .progress_chars("##-"));
+
+        'render: for iter in 0..iterations {
+          if let Ok(message) = rx1.try_recv(){
+            match message {
+              Action::GetState => {
+                tx2.send(ActionResult::State(state.clone())).unwrap();
+              },
+              Action::Interrupt => {
+                progress_bar.finish_and_clear();
+                println!("{} got interrupt signal", TColor::BrightRed.paint("opencl::thr:"));
+                break 'render;
+              }
+              _ => ()
+            }
+          }
+
+          if let Err(_) = kernel.main(iter + state.randgen_offset){
+            break 'render;
+          }
+          if iter % 64 == 0 {
+            kernel.draw_image().unwrap();
+            kernel.draw_image_preview().unwrap();
+          }
+          progress_bar.inc(1);
+          progress_bar.set_message(&format!("iter #{}", iter + 1));
+        }
+        progress_bar.finish_and_clear();
+        state.randgen_offset += iterations;
+
+        kernel.draw_image().unwrap();
+        kernel.draw_image_preview().unwrap();
+        tx2.send(ActionResult::Ok).unwrap();
+        state.rendering = false;
+
         println!("{} {:?}", TColor::BrightBlack.paint("opencl::render::profiling:"), t0.elapsed());
       },
       Action::SaveImage => {
@@ -78,9 +152,38 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
           }
         }
       },
+      Action::GetState => {
+        tx2.send(ActionResult::State(state.clone())).unwrap();
+      },
+      Action::Interrupt => {
+        tx2.send(ActionResult::Ok).unwrap();
+      }
       _ => ()
     }
   }
+}
+
+pub fn thread_interrupt() -> bool {
+  unsafe {
+    if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
+      tx1.send(Action::GetState).unwrap();
+      let result = rx2.recv().unwrap();
+      match result {
+        ActionResult::State(thread_state) => {
+          if thread_state.rendering {
+            tx1.send(Action::Interrupt).unwrap();
+            rx2.recv().unwrap();
+          } else {
+            return true;
+          }
+        },
+        _ => ()
+      }
+    } else {
+      return true;
+    }
+  }
+  return false;
 }
 
 pub unsafe fn u32_to_u8(mut vec32: Vec<u32>) -> Vec<u8> {
@@ -172,14 +275,10 @@ impl KernelWrapper {
         .build()?
     };
 
-    fn uint2(v: (u32, u32)) -> u64 {
-      ((v.0 as u64) << 32) | (v.1 as u64)
-    }
-
     let kernel_main = main_que.kernel_builder("main")
       .arg(&args.accumulator)
       .arg(&args.frequency_max)
-      .arg(uint2(image_size))
+      .arg(Uint2::new(image_size.0, image_size.1))
       .arg(&args.iter)
       .build()?;
 
@@ -206,12 +305,9 @@ impl KernelWrapper {
   }
 
   pub fn main(&self, iter: u32) -> ocl::Result<()> {
-    let iter = iter * 64;
     unsafe {
-      for iter in iter..(iter + 64) {
-        self.args.iter.write(&vec![iter]).enq()?;
-        self.kernel_main.enq()?;
-      }
+      self.args.iter.write(&vec![iter]).enq()?;
+      self.kernel_main.enq()?;
     }
     Ok(())
   }

@@ -1,5 +1,5 @@
 // #![windows_subsystem = "windows"]
-#![feature(type_ascription)]
+#[macro_use] extern crate clap;
 mod ui;
 mod repl;
 mod opencl;
@@ -16,7 +16,11 @@ static mut TX1: Option<Sender<opencl::Action>> = None;
 static mut RX2: Option<Receiver<opencl::ActionResult>> = None;
 
 fn main() {
-  print!("{}\nType \"help\" for help.\n", TColor::BrightRed.paint("OpenCL Attractor v0.2, gui + repl interface"));
+  print!("{}\nType \"help\" for help.\n",
+         TColor::BrightRed.paint(
+           format!("OpenCL Attractor v{}, gui + repl interface", env!("CARGO_PKG_VERSION"))
+         )
+  );
 
   let (tx1, rx1) = channel::<opencl::Action>(); // (thr_ui, thr_repl) -> thr_opencl
   let (tx2, rx2) = channel(); // thr_opencl -> (thr_ui, thr_repl)

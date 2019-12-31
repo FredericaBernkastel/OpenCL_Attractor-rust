@@ -1,6 +1,6 @@
 [package]
 name = "opencl_attractor"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["FredericaBernkastel <bernkastel.frederica@protonmail.com>"]
 edition = "2018"
 
@@ -9,9 +9,10 @@ edition = "2018"
 [dependencies]
 orbtk = { git = "https://github.com/redox-os/orbtk.git", branch = "develop" }
 ocl = "0.19"
-dialoguer = "0.5.0"
+rustyline = "5.0.5"
 indicatif = "0.13.0"
 term-painter = "0.2.4"
+clap = "2.33.0"
 image = "0.22.3"
 
 [profile.release]
