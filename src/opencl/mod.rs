@@ -1,16 +1,15 @@
 #![allow(dead_code)]
 use std::{
   sync::{Arc, Mutex, mpsc::Sender, mpsc::Receiver},
-  time::{Instant, SystemTime},
-  thread::JoinHandle,
-  mem
+  time::{Instant, SystemTime, Duration},
+  thread::JoinHandle
 };
 use ocl::{ProQue, Buffer, Image, flags, prm::Uint2};
 use ocl::enums::{ImageChannelOrder, ImageChannelDataType, MemObjectType};
 use term_painter::{ToStyle, Color as TColor};
 use indicatif::{ProgressBar, ProgressStyle};
 use image;
-use std::time::Duration;
+use crate::lib::debug;
 
 struct Args {
   accumulator: Buffer<u32>,
@@ -51,17 +50,21 @@ pub enum ActionResult {
   Err
 }
 
-pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()> {
+pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Action>>>) -> JoinHandle<()> {
   let mut state = ThreadState {
     randgen_offset: 0u32,
     rendering: false
   };
 
   let mut kernel = KernelWrapper::new((512, 512)).unwrap();
+  let tx2 = tx2.lock().expect("mutex is poisoned");
+  let rx1 = rx1.lock().expect("mutex is poisoned");
   tx2.send(ActionResult::Ok).unwrap();
 
   'messages: loop {
     match rx1.recv().unwrap() {
+
+      /*** New ***/
       Action::New(width, height) => {
         let mut result = ActionResult::Err;
         if let Ok(kernel_) = KernelWrapper::new((1, 1)) { // prevent memory overflow
@@ -73,6 +76,8 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
         }
         tx2.send(result).unwrap();
       },
+
+      /*** Render ***/
       Action::Render(iterations, dimensions) => {
         let dimm: ocl::SpatialDims;
         match dimensions.len() {
@@ -86,8 +91,10 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
           }
         };
 
+        debug(|| println!("{} executing OpenCL kernel...", TColor::BrightBlack.paint("opencl::thr:")));
+        // fix ProgressBar bug
         std::thread::sleep(Duration::from_millis(1));
-        println!("{} executing OpenCL kernel...", TColor::BrightBlack.paint("opencl::thr:"));
+        println!();
 
         state.rendering = true;
         kernel.kernel_main.set_default_global_work_size(dimm);
@@ -98,6 +105,8 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
           .progress_chars("##-"));
 
         'render: for iter in 0..iterations {
+
+          // event polling during render
           if let Ok(message) = rx1.try_recv(){
             match message {
               Action::GetState => {
@@ -130,8 +139,10 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
         tx2.send(ActionResult::Ok).unwrap();
         state.rendering = false;
 
-        println!("{} {:?}", TColor::BrightBlack.paint("opencl::render::profiling:"), t0.elapsed());
+        debug(|| println!("{} {:?}", TColor::BrightBlack.paint("opencl::render::profiling:"), t0.elapsed()));
       },
+
+      /*** SaveImage ***/
       Action::SaveImage => {
         unsafe {
           if let Some(image_buffer) = &crate::IMAGE_BUFFER {
@@ -152,9 +163,13 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
           }
         }
       },
+
+      /*** GetState ***/
       Action::GetState => {
         tx2.send(ActionResult::State(state.clone())).unwrap();
       },
+
+      /*** Interrupt ***/
       Action::Interrupt => {
         tx2.send(ActionResult::Ok).unwrap();
       }
@@ -163,45 +178,24 @@ pub fn thread(tx2: Sender<ActionResult>, rx1: Receiver<Action>) -> JoinHandle<()
   }
 }
 
-pub fn thread_interrupt() -> bool {
-  unsafe {
-    if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
-      tx1.send(Action::GetState).unwrap();
-      let result = rx2.recv().unwrap();
-      match result {
-        ActionResult::State(thread_state) => {
-          if thread_state.rendering {
-            tx1.send(Action::Interrupt).unwrap();
-            rx2.recv().unwrap();
-          } else {
-            return true;
-          }
-        },
-        _ => ()
+pub fn thread_interrupt(tx1: Arc<Mutex<Sender<Action>>>, rx2: Arc<Mutex<Receiver<ActionResult>>>) -> bool {
+  let tx1 = tx1.lock().expect("mutex is poisoned");
+  let rx2 = rx2.lock().expect("mutex is poisoned");
+  tx1.send(Action::GetState).unwrap();
+  let result = rx2.recv().unwrap();
+  match result {
+    ActionResult::State(thread_state) => {
+      if thread_state.rendering {
+        tx1.send(Action::Interrupt).unwrap();
+        rx2.recv().unwrap();
+      } else {
+        return true;
       }
-    } else {
-      return true;
-    }
+    },
+    _ => ()
   }
+
   return false;
-}
-
-pub unsafe fn u32_to_u8(mut vec32: Vec<u32>) -> Vec<u8> {
-  let ratio = mem::size_of::<u32>() / mem::size_of::<u8>();
-  let length = vec32.len() * ratio;
-  let capacity = vec32.capacity() * ratio;
-  let ptr = vec32.as_mut_ptr() as *mut u8;
-  mem::forget(vec32);
-  Vec::from_raw_parts(ptr, length, capacity)
-}
-
-pub unsafe fn u8_to_u32(mut vec8: Vec<u8>) -> Vec<u32> {
-  let ratio = mem::size_of::<u32>() / mem::size_of::<u8>();
-  let length = vec8.len() / ratio;
-  let capacity = vec8.capacity() / ratio;
-  let ptr = vec8.as_mut_ptr() as *mut u32;
-  mem::forget(vec8);
-  Vec::from_raw_parts(ptr, length, capacity)
 }
 
 impl KernelWrapper {
@@ -213,7 +207,7 @@ impl KernelWrapper {
       .expect("No GPU devices found")
       .clone();
 
-    println!("{}", TColor::BrightBlack.paint(format!("opencl::device::info: {}", device.to_string())));
+    debug(|| println!("{}", TColor::BrightBlack.paint(format!("opencl::device::info: {}", device.to_string()))));
 
     let framebuffer = image::ImageBuffer::from_fn(
       image_size.0,
@@ -305,8 +299,8 @@ impl KernelWrapper {
   }
 
   pub fn main(&self, iter: u32) -> ocl::Result<()> {
+    self.args.iter.write(&vec![iter]).enq()?;
     unsafe {
-      self.args.iter.write(&vec![iter]).enq()?;
       self.kernel_main.enq()?;
     }
     Ok(())
@@ -317,11 +311,14 @@ impl KernelWrapper {
       self.image_size.0 as f64 * self.image_size.1 as f64
         / self.kernel_draw_image.default_global_work_size().to_len() as f64)
       .ceil() as u32;
-    unsafe {
-      for iter in 0..iter_count {
-        self.args.iter.write(&vec![iter]).enq()?;
+
+    for iter in 0..iter_count {
+      self.args.iter.write(&vec![iter]).enq()?;
+      unsafe {
         self.kernel_draw_image.enq()?;
       }
+    }
+    unsafe {
       if let Some(image_buffer) = &mut crate::IMAGE_BUFFER {
         let mut image_buffer = image_buffer.lock().expect("mutex is poisoned");
         self.args.framebuffer.read(&mut image_buffer).enq()?;
