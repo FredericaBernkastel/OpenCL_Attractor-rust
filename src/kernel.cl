@@ -242,8 +242,8 @@ uint CheckOrbit(complex const c){
 __kernel void main(
     __global uint * accumulator, 
     __global uint * frequency_max,
-    uint2 image_size,
-    __global uint * iter
+    __private uint2 const image_size,
+    __global __write_only uint * iter
   ) 
 {
   uint id_x = get_global_id(0);
@@ -270,64 +270,62 @@ __kernel void main(
   }
 }
 
-const sampler_t samplerIn =
-    CLK_NORMALIZED_COORDS_FALSE |
-    CLK_ADDRESS_CLAMP |
-    CLK_FILTER_LINEAR;
-
-const sampler_t samplerOut =
-    CLK_NORMALIZED_COORDS_FALSE |
-    CLK_ADDRESS_CLAMP |
-    CLK_FILTER_NEAREST;
-
 __kernel void draw_image(
+    __private uint const preview,
     __global uint * accumulator,
-    write_only image2d_t framebuffer,
+    __write_only image2d_t framebuffer,
+    __write_only image2d_t framebuffer_preview,
     __global uint * frequency_max,
-    __global uint * iter
+    __private uint const block_id
   )
 {
   uint x = get_global_id(0);
   uint y = get_global_id(1);
-  uint dimm_x = get_global_size(0);
-  uint dimm_y = get_global_size(1);
-  uint2 image_size = (uint2)(get_image_width(framebuffer), get_image_height(framebuffer));
+  uint2 dimensions = (uint2)(get_global_size(0), get_global_size(1));
+  uint2 image_size;
+  uint2 image_size_full = (uint2)(get_image_width(framebuffer), get_image_height(framebuffer));
+  uint2 image_size_preview = (uint2)(get_image_width(framebuffer_preview), get_image_height(framebuffer_preview));
+  if(preview)
+    image_size = image_size_preview;
+  else
+    image_size = image_size_full;
   
-  uint blocks_x = max(image_size.x / dimm_x, (uint)1);
-  uint blocks_y = max(image_size.y / dimm_y, (uint)1);
+  uint blocks_x = ceil((float)image_size.x / (float)dimensions.x);
+  uint blocks_y = ceil((float)image_size.y / (float)dimensions.y);
   
-  x = x + iter[0] % blocks_x * dimm_x;
-  y = y + iter[0] / blocks_y * dimm_y;
+  x = x + block_id % blocks_x * dimensions.x;
+  y = y + block_id / blocks_y * dimensions.y;
   
-  if((x >= image_size.x) || (y >= image_size.y))
+  int2 pos_in;
+  int2 pos_out = (int2)(x, y);
+  if (preview)
+    pos_in = convert_int2(
+      convert_float2((uint2)(x, y))      / 
+      convert_float2(image_size_preview) * 
+      convert_float2(image_size_full)
+    );
+  else
+    pos_in = (int2)(x, y);
+  
+  if (
+    (pos_out.x >= image_size.x) || 
+    (pos_out.y >= image_size.y) ||
+    (pos_in.x >= image_size_full.x) ||
+    (pos_in.y >= image_size_full.y)
+  )
     return;
   
   if(frequency_max[0] > 0){
-    float frequency = (float)accumulator[y * image_size.x + x];
+    float frequency = (float)accumulator[pos_in.y * image_size_full.x + pos_in.x];
     float alpha = 1 * log((frequency + 1)) / log(((float)frequency_max[0] + 1));
     float gamma = 2;
     
     //image[y * size.x + x] = ARGBToUInt32(HSL2ARGB(ARGB2HSL(UInt32ToARGB(palette[colorIndex])) * (float3)(1,1,min(pow(alpha, 1 / gamma), (float)1)))) | 0xFF000000;
     //image[y * size.x + x] = ARGBToUInt32(UInt32ToARGB(palette[colorIndex]) * min(pow(alpha, 1 / gamma), (float)1)) | 0xFF000000;
     color pixel = float1ToARGB(min(pow(alpha, 1 / gamma), 1.0f));
-    write_imageui(framebuffer, (int2)(x, y), pixel);
+    if (preview)
+      write_imageui(framebuffer_preview, pos_out, pixel);
+    else
+      write_imageui(framebuffer, pos_out, pixel);
   }
-}
-
-__kernel void draw_image_preview(
-    image2d_t framebuffer,
-    __write_only image2d_t framebuffer_preview
-  )
-{
-  int2 size_in  = (int2)(get_image_width(framebuffer), get_image_height(framebuffer));
-  int2 size_out = (int2)(get_image_width(framebuffer_preview), get_image_height(framebuffer_preview));
-  int2 pos_out  = (int2)(get_global_id(0), get_global_id(1));
-  int2 pos_in   = convert_int2(
-    convert_float2(pos_out)  / 
-    convert_float2(size_out) * 
-    convert_float2(size_in)
-  );
-
-  color pixel = read_imageui(framebuffer, samplerIn, pos_in);
-  write_imageui(framebuffer_preview, pos_out, pixel);
 }

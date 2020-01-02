@@ -4,7 +4,7 @@ use std::{
   time::{Instant, SystemTime, Duration},
   thread::JoinHandle
 };
-use ocl::{ProQue, Buffer, Image, flags, prm::Uint2};
+use ocl::{ProQue, Buffer, Image, flags, prm::Uint2, SpatialDims};
 use ocl::enums::{ImageChannelOrder, ImageChannelDataType, MemObjectType};
 use term_painter::{ToStyle, Color as TColor};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -16,13 +16,12 @@ struct Args {
   framebuffer: Image<u8>,
   framebuffer_preview: Image<u8>,
   frequency_max: Buffer<u32>,
-  iter: Buffer<u32>,
+  iter: Buffer<u32>
 }
 
 pub struct KernelWrapper{
   kernel_main: ocl::Kernel,
   kernel_draw_image: ocl::Kernel,
-  kernel_draw_image_preview: ocl::Kernel,
   args: Args,
   pub image_size: (u32, u32)
 }
@@ -66,6 +65,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
 
       /*** New ***/
       Action::New(width, height) => {
+        state.randgen_offset = 0;
         let mut result = ActionResult::Err;
         if let Ok(kernel_) = KernelWrapper::new((1, 1)) { // prevent memory overflow
           kernel = kernel_;
@@ -101,7 +101,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
         let t0 = Instant::now();
         let progress_bar = ProgressBar::new(iterations as u64);
         progress_bar.set_style(ProgressStyle::default_bar()
-          .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:cyan/blue}] {percent}% {msg} [{eta}]")
+          .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:cyan/blue}] {percent}% iter #{pos} [{eta}]")
           .progress_chars("##-"));
 
         'render: for iter in 0..iterations {
@@ -121,20 +121,19 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
             }
           }
 
+          // render kernel
           if let Err(_) = kernel.main(iter + state.randgen_offset){
             break 'render;
           }
           if iter % 64 == 0 {
-            kernel.draw_image().unwrap();
             kernel.draw_image_preview().unwrap();
           }
           progress_bar.inc(1);
-          progress_bar.set_message(&format!("iter #{}", iter + 1));
         }
         progress_bar.finish_and_clear();
         state.randgen_offset += iterations;
 
-        kernel.draw_image().unwrap();
+        //kernel.draw_image().unwrap();
         kernel.draw_image_preview().unwrap();
         tx2.send(ActionResult::Ok).unwrap();
         state.rendering = false;
@@ -144,6 +143,8 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
 
       /*** SaveImage ***/
       Action::SaveImage => {
+        kernel.draw_image().unwrap();
+
         unsafe {
           if let Some(image_buffer) = &crate::IMAGE_BUFFER {
             let image_buffer = image_buffer.lock().expect("mutex is poisoned");
@@ -233,7 +234,7 @@ impl KernelWrapper {
     let args = Args {
       accumulator: Buffer::<u32>::builder()
         .queue(main_que.queue().clone())
-        .flags(flags::MEM_READ_WRITE)
+        .flags(flags::MEM_READ_WRITE | flags::MEM_HOST_NO_ACCESS)
         .len(image_size.0 * image_size.1)
         .fill_val(0u32)
         .build()?,
@@ -242,7 +243,7 @@ impl KernelWrapper {
         .channel_data_type(ImageChannelDataType::UnsignedInt8)
         .image_type(MemObjectType::Image2d)
         .dims(&image_size)
-        .flags(flags::MEM_READ_WRITE | flags::MEM_HOST_READ_ONLY | flags::MEM_COPY_HOST_PTR)
+        .flags(flags::MEM_WRITE_ONLY | flags::MEM_HOST_READ_ONLY | flags::MEM_COPY_HOST_PTR)
         .copy_host_slice(&framebuffer)
         .queue(main_que.queue().clone())
         .build()?,
@@ -257,13 +258,13 @@ impl KernelWrapper {
         .build()?,
       frequency_max:Buffer::<u32>::builder()
         .queue(main_que.queue().clone())
-        .flags(flags::MEM_READ_WRITE)
+        .flags(flags::MEM_READ_WRITE | flags::MEM_HOST_NO_ACCESS)
         .len(1)
         .fill_val(0u32)
         .build()?,
       iter: Buffer::<u32>::builder()
         .queue(main_que.queue().clone())
-        .flags(flags::MEM_READ_WRITE)
+        .flags(flags::MEM_READ_ONLY)
         .len(1)
         .fill_val(0u32)
         .build()?
@@ -278,24 +279,26 @@ impl KernelWrapper {
 
     let kernel_draw_image = main_que.kernel_builder("draw_image")
       .global_work_size((512, 512))
+      .arg_named("preview",false as u32)
       .arg(&args.accumulator)
       .arg(&args.framebuffer)
-      .arg(&args.frequency_max)
-      .arg(&args.iter)
-      .build()?;
-
-    let kernel_draw_image_preview = main_que.kernel_builder("draw_image_preview")
-      .global_work_size((512, 512))
-      .arg(&args.framebuffer)
       .arg(&args.framebuffer_preview)
+      .arg(&args.frequency_max)
+      .arg_named("block_id", 0u32)
       .build()?;
 
     unsafe {
-      crate::IMAGE_BUFFER = Some(Arc::new(Mutex::new(framebuffer)));
-      crate::IMAGE_BUFFER_PREVIEW = Some(Arc::new(Mutex::new(framebuffer_preview)));
+      if let (Some(image_buffer), Some(image_buffer_preview))
+        = (&mut crate::IMAGE_BUFFER, &mut crate::IMAGE_BUFFER_PREVIEW){
+        *image_buffer.lock().expect("mutex is poisoned") = framebuffer;
+        *image_buffer_preview.lock().expect("mutex is poisoned") = framebuffer_preview;
+      } else {
+        crate::IMAGE_BUFFER = Some(Arc::new(Mutex::new(framebuffer)));
+        crate::IMAGE_BUFFER_PREVIEW = Some(Arc::new(Mutex::new(framebuffer_preview)));
+      }
     }
 
-    Ok(KernelWrapper { kernel_main, kernel_draw_image, kernel_draw_image_preview, args, image_size })
+    Ok(KernelWrapper { kernel_main, kernel_draw_image, args, image_size })
   }
 
   pub fn main(&self, iter: u32) -> ocl::Result<()> {
@@ -307,13 +310,21 @@ impl KernelWrapper {
   }
 
   pub fn draw_image(&self) -> ocl::Result<()> {
-    let iter_count = (
-      self.image_size.0 as f64 * self.image_size.1 as f64
-        / self.kernel_draw_image.default_global_work_size().to_len() as f64)
-      .ceil() as u32;
+    let dimensions;
+    match self.kernel_draw_image.default_global_work_size() {
+      SpatialDims::Two(d0, d1) => dimensions = (d0, d1),
+      _ => {
+        panic!("invalid kernel dimensions");
+      }
+    }
 
-    for iter in 0..iter_count {
-      self.args.iter.write(&vec![iter]).enq()?;
+    let blocks_count = (
+      (self.image_size.0 as f64 / dimensions.0 as f64).ceil() *
+      (self.image_size.1 as f64 / dimensions.1 as f64).ceil()) as u32;
+
+    self.kernel_draw_image.set_arg("preview", false as u32)?;
+    for block_id in 0..blocks_count {
+      self.kernel_draw_image.set_arg("block_id", block_id)?;
       unsafe {
         self.kernel_draw_image.enq()?;
       }
@@ -328,8 +339,10 @@ impl KernelWrapper {
   }
 
   pub fn draw_image_preview(&self) -> ocl::Result<()> {
+    self.kernel_draw_image.set_arg("preview", true as u32)?;
+    self.kernel_draw_image.set_arg("block_id", 0u32)?;
     unsafe {
-      self.kernel_draw_image_preview.enq()?;
+      self.kernel_draw_image.enq()?;
       if let Some(image_buffer) = &mut crate::IMAGE_BUFFER_PREVIEW {
         let mut image_buffer = image_buffer.lock().expect("mutex is poisoned");
         self.args.framebuffer_preview.read(&mut image_buffer).enq()?;
