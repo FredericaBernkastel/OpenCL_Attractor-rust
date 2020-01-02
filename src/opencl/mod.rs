@@ -9,6 +9,7 @@ use ocl::enums::{ImageChannelOrder, ImageChannelDataType, MemObjectType};
 use term_painter::{ToStyle, Color as TColor};
 use indicatif::{ProgressBar, ProgressStyle};
 use image;
+use rand::{self, Rng};
 use crate::lib::debug;
 
 struct Args {
@@ -60,12 +61,17 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
   let rx1 = rx1.lock().expect("mutex is poisoned");
   tx2.send(ActionResult::Ok).unwrap();
 
+  let mut rng = rand::thread_rng();
+  let distribution = rand::distributions::Uniform::new_inclusive(0u64, std::u64::MAX);
+  let mut random = [0u64; 2];
+
   'messages: loop {
     match rx1.recv().unwrap() {
 
       /*** New ***/
       Action::New(width, height) => {
         state.randgen_offset = 0;
+        rng = rand::thread_rng();
         let mut result = ActionResult::Err;
         if let Ok(kernel_) = KernelWrapper::new((1, 1)) { // prevent memory overflow
           kernel = kernel_;
@@ -121,8 +127,13 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
             }
           }
 
+          // generate random
+          for x in &mut random {
+            *x = rng.sample(distribution);
+          }
+
           // render kernel
-          if let Err(_) = kernel.main(iter + state.randgen_offset){
+          if let Err(_) = kernel.main(iter + state.randgen_offset, (random[0], random[1])){
             break 'render;
           }
           if iter % 64 == 0 {
@@ -223,7 +234,7 @@ impl KernelWrapper {
         image::Rgba([0, 0, 0, 0xFF])
       });
 
-    let src = std::fs::read_to_string("kernel.cl").expect("Unable to load kernel.cl");
+    let src = std::fs::read_to_string("kernel/main.cl").expect("Unable to load kernel files");
 
     let main_que = ProQue::builder()
       .src(src.clone())
@@ -275,6 +286,7 @@ impl KernelWrapper {
       .arg(&args.frequency_max)
       .arg(Uint2::new(image_size.0, image_size.1))
       .arg(&args.iter)
+      .arg_named("random", ocl::prm::Ulong2::new(0, 0))
       .build()?;
 
     let kernel_draw_image = main_que.kernel_builder("draw_image")
@@ -301,8 +313,9 @@ impl KernelWrapper {
     Ok(KernelWrapper { kernel_main, kernel_draw_image, args, image_size })
   }
 
-  pub fn main(&self, iter: u32) -> ocl::Result<()> {
+  pub fn main(&self, iter: u32, random: (u64, u64)) -> ocl::Result<()> {
     self.args.iter.write(&vec![iter]).enq()?;
+    self.kernel_main.set_arg("random", ocl::prm::Ulong2::new(random.0, random.1))?;
     unsafe {
       self.kernel_main.enq()?;
     }

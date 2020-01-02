@@ -1,6 +1,6 @@
 [package]
 name = "opencl_attractor"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["FredericaBernkastel <bernkastel.frederica@protonmail.com>"]
 edition = "2018"
 
@@ -14,6 +14,7 @@ indicatif = "0.13.0"
 term-painter = "0.2.4"
 clap = "2.33.0"
 image = "0.22.3"
+rand = "0.7.2"
 
 [profile.release]
 lto = true
