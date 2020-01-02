@@ -5,6 +5,8 @@
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
+#include "kernel/mwc64x.cl"
+
 //2 component vector to hold the real and imaginary parts of a complex number:
 typedef float2 complex;
 #define I ((complex)(0.0, 1.0))
@@ -165,10 +167,14 @@ inline complex coords_Normal2Window(complex z){
   return (z * (float2)2.0 - (float2)1.0) * windowSize - windowCenter;
 }
 
+inline complex coords_Abnormal2Window(uint2 z_abnormal){
+  float2 z_normal = convert_float2(z_abnormal) / (float2)(UINT_MAX >> 1);
+  return (z_normal - (float2)1.0) * windowSize - windowCenter;
+}
 
 inline bool coords_testOverflow(uint2 pixel, uint2 size){
-  return  (pixel.x >= 0) && (pixel.x < size.x) &&
-          (pixel.y >= 0) && (pixel.y < size.y);
+  return (pixel.x < size.x) &&
+         (pixel.y < size.y);
 }
 
 inline float2 rand(uint2 state)
@@ -246,17 +252,17 @@ __kernel void main(
     __global __write_only uint * iter
   ) 
 {
-  uint id_x = get_global_id(0);
-  uint id_y = get_global_id(1);
   uint dimm_x = get_global_size(0);
   uint dimm_y = get_global_size(1);
-  uint2 _size = (uint2)(dimm_x, dimm_y);
+  uint dimm_z = get_global_size(2);
   uint2 size = image_size;
-  
-  complex c = coords_Normal2Window(rand((uint2)(id_x + iter[0] * dimm_x, id_y + iter[0] * dimm_y)));
+
+  mwc64x_state_t rng;
+  MWC64X_SeedStreams(&rng, iter[0] * dimm_x * dimm_y * dimm_z, 2);
+  //complex c = coords_Normal2Window(rand((uint2)(id_x + iter[0] * dimm_x, id_y + iter[0] * dimm_y)));
+  complex c = coords_Abnormal2Window((uint2)(MWC64X_NextUint(&rng), MWC64X_NextUint(&rng)));
   
   uint orbit_length = CheckOrbit(c);
-  
   if(orbit_length == 0)
     return;
   

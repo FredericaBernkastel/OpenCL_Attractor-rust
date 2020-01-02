@@ -223,7 +223,7 @@ impl KernelWrapper {
         image::Rgba([0, 0, 0, 0xFF])
       });
 
-    let src = std::fs::read_to_string("kernel.cl").expect("Unable to load kernel.cl");
+    let src = std::fs::read_to_string("kernel/main.cl").expect("Unable to load kernel files");
 
     let main_que = ProQue::builder()
       .src(src.clone())

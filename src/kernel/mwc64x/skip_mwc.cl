@@ -68,7 +68,12 @@ uint2 MWC_SeedImpl_Mod64(ulong A, ulong M, uint vecSize, uint vecOffset, ulong s
 	// generated a random number.
 	enum{ MWC_BASEID = 4077358422479273989UL };
 	
-	ulong dist=streamBase + (get_global_id(0)*vecSize+vecOffset)*streamGap;
+  ulong gid = 
+    get_global_id(2) * get_global_size(0) * get_global_size(1) + 
+    get_global_id(1) * get_global_size(0) + 
+    get_global_id(0);
+    
+	ulong dist=streamBase + (gid*vecSize+vecOffset)*streamGap;
 	ulong m=MWC_PowMod64(A, dist, M);
 	
 	ulong x=MWC_MulMod64(MWC_BASEID, m, M);
