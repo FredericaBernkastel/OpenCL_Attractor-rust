@@ -11,6 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use image;
 use rand::{self, Rng};
 use crate::lib::debug;
+use orbtk::prelude::HashMap;
 
 struct Args {
   accumulator: Buffer<u32>,
@@ -184,7 +185,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
       /*** Interrupt ***/
       Action::Interrupt => {
         tx2.send(ActionResult::Ok).unwrap();
-      }
+      },
       _ => ()
     }
   }
@@ -208,6 +209,28 @@ pub fn thread_interrupt(tx1: Arc<Mutex<Sender<Action>>>, rx2: Arc<Mutex<Receiver
   }
 
   return false;
+}
+
+pub fn load_source() -> String {
+  let files = [
+    "kernel/complex.cl",
+    "kernel/util.cl",
+    "kernel/draw_image.cl",
+    "kernel/main.cl"
+  ];
+  let files = files.iter().map(|&x| {
+    if let Ok(src) = std::fs::read_to_string(x) {
+      (x.to_string(), src)
+    } else {
+      println!("Unable to load {}", x);
+      (x.to_string(), "".to_string())
+    }
+  }).collect::<HashMap<String, String>>();
+  let mut result = files.get("kernel/main.cl".into()).unwrap().clone();
+  for (path, src) in files.iter() {
+    result = result.replace(format!("#include \"{}\"", path).as_str(), src);
+  };
+  result
 }
 
 impl KernelWrapper {
@@ -234,10 +257,8 @@ impl KernelWrapper {
         image::Rgba([0, 0, 0, 0xFF])
       });
 
-    let src = std::fs::read_to_string("kernel/main.cl").expect("Unable to load kernel files");
-
     let main_que = ProQue::builder()
-      .src(src.clone())
+      .src(load_source())
       .device(device)
       .dims((512, 512))
       .build()?;
