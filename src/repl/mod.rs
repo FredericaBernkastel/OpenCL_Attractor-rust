@@ -19,6 +19,7 @@ pub fn init(
         (@arg iter: -i --iter +takes_value)
         (@arg dimensions: -d --dimensions +takes_value +multiple)
       )
+      (@subcommand recompile => )
       (@subcommand save_image => )
       (@subcommand help => )
       (@subcommand exit => )
@@ -33,6 +34,7 @@ render      render kernel
   -i, --iter=[value | 64]                   iteration count
   -d, --dimensions=[values... | 512 512 1]  worker dimensions
 
+recompile   compile kernel and redraw preview
 save_image  save image in current directory
 help        print help message
 exit        terminate application
@@ -71,6 +73,12 @@ exit        terminate application
               let dimensions = values_t!(command, "dimensions", u32).unwrap_or(vec![512, 512]);
               tx1.send(opencl::Action::Render(iter, dimensions)).unwrap();
               //rx2.recv().unwrap();
+            },
+
+            /*** recompile ***/
+            ("recompile", Some(_)) => {
+              tx1.send(opencl::Action::Recompile).unwrap();
+              rx2.recv().unwrap();
             },
 
             /*** save_image ***/

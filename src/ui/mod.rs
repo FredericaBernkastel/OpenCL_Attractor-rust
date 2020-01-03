@@ -124,14 +124,17 @@ impl Template for MainView {
                 Button::create()
                   .attach(Grid::row(0))
                   .attach(Grid::column(4))
-                  .text("stop")
+                  .text("recompile")
                   .margin((8.0, 8.0, 0.0, 0.0))
                   .size(100.0, 30.0)
                   .on_click(move |_states, _|{
+                    println!("> recompile");
                     unsafe {
                       if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
-                        opencl::thread_interrupt(tx1.clone(), rx2.clone());
-                        println!("^C");
+                        let tx1 = tx1.lock().unwrap();
+                        let rx2 = rx2.lock().unwrap();
+                        tx1.send(opencl::Action::Recompile).unwrap();
+                        rx2.recv().unwrap();
                       }
                     }
                     true

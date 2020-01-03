@@ -22,22 +22,25 @@ uint ARGBToUInt32(color pixel){
 
 
 uint2 coords_Window2Screen(complex z, complex size){
-  return convert_uint2(((z + windowCenter) / windowSize + (float2)1) / (float2)2 * size);
+  //return convert_uint2(((z + windowCenter) / windowSize + (float2)1) / (float2)2 * size);
+  return convert_uint2(((z + windowCenter + windowSize / (float)2) / windowSize * size * (complex)(windowSize.x / windowSize.y, 1))) - 1;
 }
 
 complex coords_Normal2Window(complex z){
-  return (z * (float2)2.0 - (float2)1.0) * windowSize - windowCenter;
+  //return (z * (float2)2.0 - (float2)1.0) * windowSize - windowCenter;
+  return z * windowSize - windowSize / (float)2 - windowCenter;
 }
 
 complex coords_Abnormal2Window(uint2 z_abnormal){
   float2 z_normal = convert_float2(z_abnormal) / (float2)(UINT_MAX >> 1);
-  return (z_normal - (float2)1.0) * windowSize - windowCenter;
+  return (z_normal * windowSize - windowSize) / (float)2 - windowCenter;
+  //return (z_normal - (float2)1.0) * windowSize - windowCenter;
 }
 
 
 bool coords_testOverflow(uint2 pixel, uint2 size){
-  return  (pixel.x >= 0) && (pixel.x < size.x) &&
-          (pixel.y >= 0) && (pixel.y < size.y);
+  return  (pixel.x < size.x) &&
+          (pixel.y < size.y);
 }
 
 /*
