@@ -54,11 +54,15 @@ float c_arg(complex a){
   }
 }
 
-/*
- * Multiply two complex numbers:
- */
+
 complex c_mul(complex a, complex b){
   return (complex)( a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+complex c_div(complex a,complex b){
+  float an = atan2(-a.y, -a.x) - atan2(-b.y, -b.x);
+  float  r = length(a) / length(b);
+  return r * (complex)(cos(an), sin(an));
 }
 
 complex c_sqr(complex a){
@@ -80,28 +84,25 @@ complex c_log(complex a) {
  * https://en.wikipedia.org/wiki/Exponentiation#Powers_of_complex_numbers
  */
 complex c_pow(complex z, complex w){
-  float logr = log(hypot(real(z), imag(z)));
-  float logi = atan2(imag(z), real(z));
+  float logr = log(hypot(z.x, z.y));
+  float logi = atan2(z.y, z.x);
 
-  float x = exp(logr * real(w) - logi * imag(w));
-  float y = logr * imag(w) + logi * real(w);
+  float x = exp(logr * w.x - logi * w.y);
+  float y = logr * w.y + logi * w.x;
   
   float cosy;
   float siny = sincos(y, &cosy);
   complex result = (complex)(x * cosy, x * siny);
   
-  if(isnan(result.x) || isnan(result.y))
-    result = HUGE_VALF;
   return result;
 }
 
 /*
  * Rising complex number to a real power
  */
-complex c_powr(complex z, float w)      
-{ 
-  float logr = log(hypot(real(z), imag(z))); 
-  float logi = atan2(imag(z), real(z)); 
+complex c_powr(complex z, float w){ 
+  float logr = log(hypot(z.x, z.y)); 
+  float logi = atan2(z.y, z.x); 
   float x = exp(logr * w); 
   float y = logi * w; 
   
@@ -109,6 +110,14 @@ complex c_powr(complex z, float w)
   float siny = sincos(y, &cosy); 
   
   return (complex)(x * cosy, x * siny);
+}
+
+complex c_tetrai(complex z, int n){
+  complex result = (complex)(1.0, 0.0);
+  for (; n > 0; n--) { 
+    result = c_pow(z, result);
+  };
+  return result;
 }
 
 #endif /* MATH_CL */

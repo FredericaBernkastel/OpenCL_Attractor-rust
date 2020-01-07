@@ -9,7 +9,7 @@
 
 __constant uint MAX_ORBIT_LENGTH = 1024;
 
-/* render window (pixel) */
+/* projection window (c) */
 __constant complex windowSize = (complex)( 3, 3 );
 __constant complex windowCenter = (complex)( 0.5, 0 );
 
@@ -24,9 +24,12 @@ __constant bool SyncWrite = true;
 #include "kernel/util.cl"
 #include "kernel/draw_image.cl"
 
-#define FORMULA z = c_powr(z, 2.0) + c
+//#define FORMULA z = c_pow(c, z);
+#define FORMULA z = c_powr(z, 2) + c;
 
-uint CheckOrbit(complex const c, uint2 image_size){
+
+uint CheckOrbit(complex const c){
+  //complex z = c;
   complex z = EPSILON_SMALL;
 
   for(int i = 0; i < MAX_ORBIT_LENGTH; i++){
@@ -34,13 +37,9 @@ uint CheckOrbit(complex const c, uint2 image_size){
        
     if (!(isfinite(z.x) & isfinite(z.y)))
       return i;
-    
-    //uint2 coords = coords_Window2Screen((z + screenCenter) / screenSize, convert_float2(image_size));
-    //if(!coords_testOverflow(coords, image_size))
-    //  return i;
 
-    if (c_abs(z) >= 4.0f )
-      return i;
+    //if (c_abs(z) >= 4.0f )
+    //  return i;
   }
   
   return MAX_ORBIT_LENGTH;
@@ -64,14 +63,14 @@ __kernel void main(
 
   complex c = coords_Abnormal2Window(LCPNG(random + (ulong2)gid));
   
-  uint orbit_length = CheckOrbit(c, image_size);
+  uint orbit_length = CheckOrbit(c);
   
   if(orbit_length == 0)
     return;
   
   if(orbit_length < MAX_ORBIT_LENGTH){
     
-    complex z = EPSILON_SMALL;
+    /*complex z = EPSILON_SMALL;
     for(int i = 0; i < orbit_length; i++){
       FORMULA; 
       
@@ -79,9 +78,16 @@ __kernel void main(
       if(coords_testOverflow(coords, image_size)){
         uint index = coords.y * image_size.x + coords.x;
 
-        atom_inc(&accumulator[index]);
+        atom_add(&accumulator[index], orbit_length);
         atom_max(&frequency_max[0], accumulator[index]);
       }
+    }*/
+    uint2 coords = coords_Window2Screen((c + screenCenter) / screenSize, (complex)(image_size.x, image_size.y));
+    if(coords_testOverflow(coords, image_size)){
+      uint index = coords.y * image_size.x + coords.x;
+
+      atom_inc(&accumulator[index]);
+      atom_max(&frequency_max[0], accumulator[index]);
     }
   }
 }

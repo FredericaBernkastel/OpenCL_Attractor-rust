@@ -112,8 +112,8 @@ impl Template for MainView {
                       if let (Some(tx1), Some(rx2)) = (&crate::TX1, &crate::RX2) {
                         let tx1 = tx1.lock().unwrap();
                         let rx2 = rx2.lock().unwrap();
-                        tx1.send(opencl::Action::Render(64, vec![512, 512])).unwrap();
-                        rx2.recv().unwrap(); // wait for opencl to finish rendering
+                        tx1.send(opencl::Action::Render(64, vec![512, 512], None)).unwrap();
+                        rx2.recv().unwrap();
                       }
                     }
                     true

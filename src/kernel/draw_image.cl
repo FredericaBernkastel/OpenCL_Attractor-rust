@@ -46,8 +46,8 @@ __kernel void draw_image(
   
   if(frequency_max[0] > 0){
     float frequency = (float)accumulator[pos_in.y * image_size_full.x + pos_in.x];
-    float alpha = 1.125f * log(frequency + 1) / log((float)frequency_max[0] + 1);
-    float gamma = 0.1f;
+    float alpha = 1.0f * log(frequency + 1) / log((float)frequency_max[0] + 1);
+    float gamma = 1.0f;
     
     //image[y * size.x + x] = ARGBToUInt32(HSL2ARGB(ARGB2HSL(UInt32ToARGB(palette[colorIndex])) * (float3)(1,1,min(pow(alpha, 1 / gamma), (float)1)))) | 0xFF000000;
     //image[y * size.x + x] = ARGBToUInt32(UInt32ToARGB(palette[colorIndex]) * min(pow(alpha, 1 / gamma), (float)1)) | 0xFF000000;

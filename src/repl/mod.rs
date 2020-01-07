@@ -71,8 +71,8 @@ exit        terminate application
             ("render", Some(command)) => {
               let iter = value_t!(command, "iter", u32).unwrap_or(64);
               let dimensions = values_t!(command, "dimensions", u32).unwrap_or(vec![512, 512]);
-              tx1.send(opencl::Action::Render(iter, dimensions)).unwrap();
-              //rx2.recv().unwrap();
+              tx1.send(opencl::Action::Render(iter, dimensions, None)).unwrap();
+              rx2.recv().unwrap();
             },
 
             /*** recompile ***/
