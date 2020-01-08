@@ -2,6 +2,7 @@ use std::{
   sync::{Arc, Mutex, mpsc::Sender, mpsc::Receiver},
   thread::JoinHandle,
   time::{Instant, SystemTime, Duration},
+  cmp::min
 };
 use super::KernelWrapper;
 use term_painter::{ToStyle, Color as TColor};
@@ -12,7 +13,8 @@ use crate::lib::debug;
 #[derive(Clone, PartialEq)]
 pub struct ThreadState {
   pub randgen_offset: u32,
-  pub rendering: bool
+  pub rendering: bool,
+  preview_render_interval: u32
 }
 
 pub enum Action {
@@ -34,7 +36,8 @@ pub enum ActionResult {
 pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Action>>>) -> JoinHandle<()> {
   let mut state = ThreadState {
     randgen_offset: 0u32,
-    rendering: false
+    rendering: false,
+    preview_render_interval: 1u32,
   };
 
   let mut kernel_wrapper = KernelWrapper::new((512, 512)).unwrap();
@@ -52,6 +55,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
       /*** New ***/
       Action::New(width, height) => {
         state.randgen_offset = 0;
+        state.preview_render_interval = 1;
         rng = rand::thread_rng();
         let mut result = ActionResult::Err;
         match KernelWrapper::new((1, 1)) { // prevent memory overflow
@@ -60,6 +64,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
             match KernelWrapper::new((width, height)) {
               Ok(kernel_wrapper_) => {
                 kernel_wrapper = kernel_wrapper_;
+                redraw_ui();
                 result = ActionResult::Ok;
               },
               Err(e) => println!("{}", e)
@@ -126,16 +131,16 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
           if let Err(_) = kernel_wrapper.main(iter + state.randgen_offset, (random[0], random[1])){
             break 'render;
           }
-          if iter % 64 == 0 {
+          if iter % state.preview_render_interval == 0 || iter == iterations - 1 {
             kernel_wrapper.draw_image_preview().unwrap();
+            redraw_ui();
+            state.preview_render_interval = min((state.preview_render_interval as f32 * 1.5).ceil() as u32, 128);
           }
           progress_bar.inc(1);
         }
         progress_bar.finish_and_clear();
         state.randgen_offset += iterations;
 
-        //kernel.draw_image().unwrap();
-        kernel_wrapper.draw_image_preview().unwrap();
         state.rendering = false;
         if let Some(mut callback) = callback {
           callback();
@@ -183,6 +188,7 @@ pub fn thread(tx2: Arc<Mutex<Sender<ActionResult>>>, rx1: Arc<Mutex<Receiver<Act
         match kernel_wrapper.recompile() {
           Ok(()) => {
             kernel_wrapper.draw_image_preview().unwrap();
+            redraw_ui();
             tx2.send(ActionResult::Ok).unwrap();
           },
           Err(e) => {
@@ -213,4 +219,16 @@ pub fn thread_interrupt(tx1: Arc<Mutex<Sender<Action>>>, rx2: Arc<Mutex<Receiver
   }
 
   return false;
+}
+
+fn redraw_ui(){
+  unsafe {
+    if let Some(ui_event) = &mut crate::TX3 {
+      ui_event
+        .lock()
+        .expect("mutex is poisoned")
+        .send(orbtk::shell::ShellRequest::Update)
+        .unwrap();
+    }
+  }
 }

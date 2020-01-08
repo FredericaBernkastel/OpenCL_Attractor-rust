@@ -1,18 +1,25 @@
-use std::time::Instant;
+use std::{
+  time::Instant,
+  sync::{Arc, Mutex}
+};
 use orbtk::{prelude::*, render::platform::RenderContext2D, utils};
 use term_painter::{ToStyle, Color as TColor};
 use crate::opencl;
 use crate::lib::debug;
 
 #[derive(Default, AsAny)]
-pub struct MainViewState;
+pub struct MainState;
 
-impl State for MainViewState {
-  fn update(&mut self, _: &mut Registry, _ctx: &mut widget::Context<'_>) {  }
+impl State for MainState {
+  fn init(&mut self, _: &mut Registry, ctx: &mut Context) {
+    unsafe {
+      crate::TX3 = Some(Arc::new(Mutex::new( ctx.request_sender())));
+    }
+  }
 }
 
 widget!(
-  MainView<MainViewState> {
+  MainView<MainState> {
     render_pipeline: RenderPipeline
   }
 );

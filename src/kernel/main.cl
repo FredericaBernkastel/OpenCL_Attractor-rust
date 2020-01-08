@@ -25,7 +25,7 @@ __constant bool SyncWrite = true;
 #include "kernel/draw_image.cl"
 
 //#define FORMULA z = c_pow(c, z);
-#define FORMULA z = c_powr(z, 2) + c;
+#define FORMULA z = c_powr(z, 2) + c
 
 
 uint CheckOrbit(complex const c){
@@ -40,6 +40,7 @@ uint CheckOrbit(complex const c){
 
     //if (c_abs(z) >= 4.0f )
     //  return i;
+    // this is a bit faster to rely just on f32 infinity
   }
   
   return MAX_ORBIT_LENGTH;
@@ -64,11 +65,11 @@ __kernel void main(
   complex c = coords_Abnormal2Window(LCPNG(random + (ulong2)gid));
   
   uint orbit_length = CheckOrbit(c);
-  
-  if(orbit_length == 0)
+
+  if (orbit_length == 0)
     return;
   
-  if(orbit_length < MAX_ORBIT_LENGTH){
+  if (orbit_length < MAX_ORBIT_LENGTH){
     
     /*complex z = EPSILON_SMALL;
     for(int i = 0; i < orbit_length; i++){

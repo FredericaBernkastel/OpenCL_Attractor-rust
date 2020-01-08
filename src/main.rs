@@ -14,6 +14,7 @@ static mut IMAGE_BUFFER: Option<Arc<Mutex<image::ImageBuffer<image::Rgba<u8>, Ve
 static mut IMAGE_BUFFER_PREVIEW: Option<Arc<Mutex<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>>> = None;
 static mut TX1: Option<Arc<Mutex<Sender<opencl::Action>>>> = None;
 static mut RX2: Option<Arc<Mutex<Receiver<opencl::ActionResult>>>> = None;
+static mut TX3: Option<Arc<Mutex<Sender<orbtk::shell::ShellRequest>>>> = None; // thr_opencl -> orbtk::shell::ShellRequest
 
 fn main() {
   print!("{}\nType \"help\" for help.\n",
