@@ -22,19 +22,19 @@ uint ARGBToUInt32(color pixel){
 
 
 uint2 coords_Window2Screen(complex z, complex size){
-  //return convert_uint2(((z + windowCenter) / windowSize + (float2)1) / (float2)2 * size);
-  return convert_uint2(((z + windowCenter + windowSize / (float)2) / windowSize * size * (complex)(windowSize.x / windowSize.y, 1))) - 1;
+  //return convert_uint2(((z - projection_offset) / projection_size + (float2)1) / (float2)2 * size);
+  return convert_uint2(((z - projection_offset * (complex)(1, -1) + projection_size / (float)2) / projection_size * size * (complex)(projection_size.x / projection_size.y, 1))) - 1;
 }
 
 complex coords_Normal2Window(complex z){
-  //return (z * (float2)2.0 - (float2)1.0) * windowSize - windowCenter;
-  return z * windowSize - windowSize / (float)2 - windowCenter;
+  //return (z * (float2)2.0 - (float2)1.0) * projection_size + projection_offset;
+  return z * projection_size - projection_size / (float)2 + projection_offset;
 }
 
 complex coords_Abnormal2Window(uint2 z_abnormal){
   float2 z_normal = convert_float2(z_abnormal) / (float2)(UINT_MAX >> 1);
-  return (z_normal * windowSize - windowSize) / (float)2 - windowCenter;
-  //return (z_normal - (float2)1.0) * windowSize - windowCenter;
+  return (z_normal * projection_size - projection_size) / (float)2 + projection_offset * (complex)(1, -1);
+  //return (z_normal - (float2)1.0) * projection_size + projection_offset;
 }
 
 

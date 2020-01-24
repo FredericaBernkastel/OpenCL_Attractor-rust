@@ -36,22 +36,25 @@ __kernel void draw_image(
     pos_in = (int2)(x, y);
   
   if (
-    (pos_out.x >= image_size.x) || 
-    (pos_out.y >= image_size.y) ||
-    (pos_in.x >= image_size_full.x) ||
-    (pos_in.y >= image_size_full.y)
+    (pos_out.x >= image_size.x - 1) || 
+    (pos_out.y >= image_size.y - 1) ||
+    (pos_in.x >= image_size_full.x - 1) ||
+    (pos_in.y >= image_size_full.y - 1)
   )
     return;
 
   
   if(frequency_max[0] > 0){
-    float frequency = (float)accumulator[pos_in.y * image_size_full.x + pos_in.x];
-    float alpha = 1.0f * log(frequency + 1) / log((float)frequency_max[0] + 1);
-    float gamma = 1.0f;
+    __const float exposure = 1.0f;
+    __const float shift = -0.0f;
+    __const float gamma = 1.0f;
+    
+    __const float frequency = (float)accumulator[pos_in.y * image_size_full.x + pos_in.x];
+    __const float alpha = log(frequency) / log((float)frequency_max[0]);
     
     //image[y * size.x + x] = ARGBToUInt32(HSL2ARGB(ARGB2HSL(UInt32ToARGB(palette[colorIndex])) * (float3)(1,1,min(pow(alpha, 1 / gamma), (float)1)))) | 0xFF000000;
     //image[y * size.x + x] = ARGBToUInt32(UInt32ToARGB(palette[colorIndex]) * min(pow(alpha, 1 / gamma), (float)1)) | 0xFF000000;
-    color pixel = float1ToARGB(min(pow(alpha, 1 / gamma), 1.0f));
+    color pixel = float1ToARGB(min((pow(exposure * alpha, 1 / gamma) + shift), 1.0f));
     if (preview)
       write_imageui(framebuffer_preview, pos_out, pixel);
     else
